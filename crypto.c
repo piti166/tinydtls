@@ -36,7 +36,7 @@
 #include "netq.h"
 #include <sodium.h>
 #include <gcrypt.h>
-#include <wolfssl/ssl.h>
+//#include <wolfssl/ssl.h>
 
 #ifndef WITH_CONTIKI
 #include <pthread.h>
@@ -68,15 +68,16 @@ static void dtls_cipher_context_release(void)
 #ifndef WITH_CONTIKI
 void crypto_init(void)
 {
-    if (!gcry_check_version (NEED_LIBGCRYPT_VERSION))
+    if (!gcry_check_version ("1.8.5"))
     {
         fprintf(stderr, "Libgrcrypt is too old (need %s, have %s)\n",
-            NEED_LIBGCRYPT_VERSION, gcry_check_version (NULL));
+            "1.8.5", gcry_check_version (NULL));
         exit (2);
     }
-    if(sodium_init() == -1 || wolfSSL_init() == -1){
+    if(sodium_init() == -1){
         puts("Couldn't initialize sodium or wolfssl");
     }
+    //wolfSSL_init();
 }
 
 static dtls_handshake_parameters_t *dtls_handshake_malloc(void) {
