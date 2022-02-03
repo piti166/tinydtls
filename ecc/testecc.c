@@ -43,6 +43,9 @@
 
 #include "ecc.h"
 #include "test_helper.h"
+#include <sodium.h>
+#include <gcrypt.h>
+//#include <wolfssl/ssl.h>
 
 #ifdef CONTIKI
 #include "contiki.h"
@@ -194,6 +197,73 @@ void ecdsaTest() {
 	assert(!ret);
 }
 
+void ecdsaSodiumTest() {
+	int ret __attribute__((unused));
+	
+	// Init
+	if(sodium_init() == -1){
+            puts("Couldn't initialize sodium");
+        }
+        // Keygen
+        unsigned char pk[crypto_sign_PUBLICKEYBYTES];
+        unsigned char sk[crypto_sign_SECRETKEYBYTES];
+        crypto_sign_keypair(pk, sk);
+       
+        // Create Signature
+	unsigned int message_len = 11;
+	const unsigned char message[11] = "Hallo Welt!";
+        unsigned char signature[crypto_sign_BYTES + message_len];
+        unsigned long long signature_len;
+	ret = crypto_sign_detached(signature, &signature_len,
+            message, message_len, sk);
+        assert(!ret);
+
+        ret = crypto_sign_verify_detached(signature, message,
+                                message_len, pk);
+	assert(!ret);
+}
+
+
+void ecdsaGcryptTest() {
+	int ret __attribute__((unused));
+
+	if(!gcry_check_version("1.8.5")){
+            puts("Couldn't initialize libgcrypt");
+        }
+	// Setup
+	gcry_sexp_t key_spec, key, pub_key, priv_key, data, signature;
+        int rc;
+	rc = gcry_sexp_build(&data, NULL, "(data (flags pkcs1) (hash sha256 \"Hallo Welt!\"))");
+        if (rc) {
+            printf("converting data for encryption failed: %s\n", gcry_strerror(rc));
+        }
+        // Keygen
+
+        rc = gcry_sexp_new(&key_spec, "(genkey (ecdsa (curve \"Curve25519\")))", 0, 1);
+        rc = gcry_pk_genkey(&key, key_spec);      
+        if (rc) {
+            printf("error creating S-expression: %s\n", gcry_strerror(rc));
+        }
+        pub_key = gcry_sexp_find_token(key, "public-key", 0);
+        if (!pub_key) {
+            printf("public part missing in key\n");
+        }
+        priv_key = gcry_sexp_find_token(key, "private-key", 0);
+        if (!priv_key) {
+            printf("privatepart missing in key\n");
+        }
+ 
+        // Create Signature
+	rc = gcry_pk_sign(&signature, data, priv_key);
+        if (rc) {
+            printf("error signing data: %s\n", gcry_strerror(rc));
+        }
+
+	rc = gcry_pk_verify(signature, data, pub_key);
+        if (rc) {
+            printf("error verifying data: %s\n", gcry_strerror(rc));
+        }
+}
 #ifdef CONTIKI
 PROCESS(ecc_test, "ECC test");
 AUTOSTART_PROCESSES(&ecc_test);
@@ -219,7 +289,9 @@ int main(int argc, char const *argv[])
 	doubleTest();
 	multTest();
 	eccdhTest();
-	ecdsaTest();
+	//ecdsaTest();
+	ecdsaSodiumTest();
+	ecdsaGcryptTest();
 	printf("%s\n", "All Tests successful.");
 	return 0;
 }
