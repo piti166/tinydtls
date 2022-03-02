@@ -48,12 +48,12 @@
 #include <wolfssl/options.h>
 #include <wolfssl/wolfcrypt/settings.h>
 #include <wolfssl/ssl.h>
-#include <wolfssl/wolfcrypt/sha.h>
+/*#include <wolfssl/wolfcrypt/error-crypt.h>
 #include <wolfssl/wolfcrypt/ecc.h>
+#include <wolfssl/wolfcrypt/sha.h>
+*/
 #include <wolfssl/wolfcrypt/curve25519.h>
 #include <wolfssl/wolfcrypt/random.h>
-#include <wolfssl/wolfcrypt/error-crypt.h>
-
 #ifdef CONTIKI
 #include "contiki.h"
 #else
@@ -223,17 +223,16 @@ void ecdsaSodiumTest() {
         crypto_sign_keypair(pk, sk);
        
         // Create Signature
-	unsigned int message_len = 11;
-	const unsigned char message[11] = "Hallo Welt!";
-        unsigned char signature[crypto_sign_BYTES + message_len];
+	unsigned int message_len = sizeof(ecdsaTestMessage)/sizeof(ecdsaTestMessage[0]); 
+        unsigned char signature[crypto_sign_BYTES];
         unsigned long long signature_len;
 	ret = crypto_sign_detached(signature, &signature_len,
-            message, message_len, sk);
+            (unsigned char*)ecdsaTestMessage, message_len, sk);
 	if (ret != 0){
-	    puts("Libsodium signature verification failed");
+	    puts("Libsodium signature generation failed");
 	}
 
-        ret = crypto_sign_verify_detached(signature, message,
+        ret = crypto_sign_verify_detached(signature, (unsigned char*)ecdsaTestMessage,
                                 message_len, pk);
 	if (ret != 0){
 	    puts("Libsodium signature verification failed");
@@ -299,7 +298,7 @@ void ecdsaGcryptTest() {
 	// Create Signature
 	rc = gcry_pk_hash_sign(&signature, template, priv_key, hd, NULL);
         if (rc) {
-            printf("error signing data: %s\n", gcry_strerror(rc));
+            printf("gcrypt error signing data: %s\n", gcry_strerror(rc));
         }
 	gcry_sexp_release(priv_key);
 	gcry_sexp_dump(signature);
@@ -307,7 +306,7 @@ void ecdsaGcryptTest() {
 	printf("Hash: %s \n", gcry_md_read(hd, GCRY_MD_SHA256));
 	rc = gcry_pk_hash_verify(signature, template, pub_key, hd, NULL);
         if (rc) {
-            printf("error verifying data: %i %s\n", rc-GPG_ERR_INTERNAL, gcry_strerror(rc));
+            printf("gcrypt error verifying data: %i %s\n", rc-GPG_ERR_INTERNAL, gcry_strerror(rc));
         }
 	gcry_sexp_release(signature);
 	gcry_sexp_release(pub_key);
@@ -317,40 +316,59 @@ void ecdsaGcryptTest() {
 void ecdsaWolfcryptTest(){
 	int ret, verified = 0;
 	unsigned int sigSz;
+	unsigned int msgSize = sizeof(ecdsaTestMessage)/sizeof(ecdsaTestMessage[0]);
 	ret = wolfSSL_Init();
 	if (ret != SSL_SUCCESS) {
 	    puts("failed to initialize wolfSSL");
 	}
-
-	ecc_key key;
-	RNG rng;
-	Sha sha;
+	
 	byte sig[512];
-	byte digest[SHA_DIGEST_SIZE];
+	//byte digest[256];
 	sigSz = sizeof(sig);
 
-	//Hash
-	wc_InitSha(&sha);
-	wc_ShaUpdate(&sha, (byte*)ecdsaTestMessage, sizeof(ecdsaTestMessage)/sizeof(ecdsaTestMessage[0]));
-	wc_ShaFinal(&sha, digest);
-	//RNG
+
+	/* Hash
+	wc_Sha256Hash((byte*)ecdsaTestMessage, (byte*)&digest);
+	printf("Hash: %s\n", digest);
+	*/
+	// RNG
+	WC_RNG rng;
 	wc_InitRng(&rng);
-	//Key Gen
-	wc_ecc_init(&key);
-	wc_ecc_make_key(&rng, 32, &key);
 
-	ret = wc_ecc_sign_hash(digest, sizeof(digest), sig, &sigSz, &rng, &key);
+	// Key Gen
+	ed25519_key key, pubKey;
+	byte pub[32];
+	word32 pubSz = sizeof(pub);
+	wc_ed25519_init(&key);
+	wc_ed25519_init(&pubKey);
+	ret = wc_ed25519_make_key(&rng, 32, &key);
 	if (ret != 0){
-	    puts("Error wolfcrypt generating signature");
+	    printf("wolfcrypt error %i while generating private key\n", ret);
 	}
-
-	ret = wc_ecc_verify_hash(sig,sizeof(sig), digest, sizeof(digest), &verified, &key);
+	ret = wc_ed25519_make_public(&key, pub, pubSz);
+	if (ret != 0) {
+	    printf("wolfcrypt error %i while generating publickey\n", ret);
+	}
+	ret = wc_ed25519_import_public(pub, pubSz, &pubKey);
+	if (ret != 0) {
+	    printf("wolfcrypt error %i while importing publickey\n", ret);
+	}
+	
+	// Sign
+	ret = wc_ed25519_sign_msg((byte*)ecdsaTestMessage, msgSize, sig, &sigSz, &key);
 	if (ret != 0){
-	    printf("Error %i while wolfcrypt verifying signature\n", ret);
+	    printf("wolfcrypt error %i while generating signature\n", ret);
 	}
-	if (ret == BAD_FUNC_ARG){
-	    puts("passed NULL somehow");
+	
+	// Verify
+	ret = wc_ed25519_verify_msg(sig, sigSz, (byte*)ecdsaTestMessage, msgSize, &verified, &pubKey);
+	if (ret < 0) {
+	    printf("wolfcrypt error %i while verifying signature\n", ret);
+	} else if (verified == 0){
+	    puts("Signature is invalid");
 	}
+	wc_ed25519_free(&key);
+	wc_ed25519_free(&pubKey);
 }
 
 #ifdef CONTIKI
