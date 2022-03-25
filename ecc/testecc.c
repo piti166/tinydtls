@@ -40,6 +40,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <time.h>
 
 #include "ecc.h"
 #include "test_helper.h"
@@ -48,10 +49,6 @@
 #include <wolfssl/options.h>
 #include <wolfssl/wolfcrypt/settings.h>
 #include <wolfssl/ssl.h>
-/*#include <wolfssl/wolfcrypt/error-crypt.h>
-#include <wolfssl/wolfcrypt/ecc.h>
-#include <wolfssl/wolfcrypt/sha.h>
-*/
 #include <wolfssl/wolfcrypt/curve25519.h>
 #include <wolfssl/wolfcrypt/random.h>
 #ifdef CONTIKI
@@ -59,6 +56,10 @@
 #else
 #include <time.h>
 #endif /* CONTIKI */
+
+#define SODIUM 0
+#define GCRYPT 0
+#define WOLFCRYPT 0
 
 //These are testvalues taken from the NIST P-256 definition
 //6b17d1f2 e12c4247 f8bce6e5 63a440f2 77037d81 2deb33a0 f4a13945 d898c296
@@ -209,7 +210,7 @@ ecdsaTest(void) {
 	assert(!ret);
 }
 
-
+#if SODIUM
 void ecdsaSodiumTest() {
 	int ret __attribute__((unused));
 	
@@ -238,8 +239,9 @@ void ecdsaSodiumTest() {
 	    puts("Libsodium signature verification failed");
 	}
 }
+#endif
 
-
+#if GCRYPT
 void ecdsaGcryptTest() {
 	int ret __attribute__((unused));
 
@@ -272,7 +274,7 @@ void ecdsaGcryptTest() {
 */
         // Keygen
 
-        rc = gcry_sexp_new(&key_spec, "(genkey (ecc (curve \"Curve25519\")))", 0, 1);
+        rc = gcry_sexp_new(&key_spec, "(genkey (ecc (curve \"Ed25519\")))", 0, 1);
         rc = gcry_pk_genkey(&key, key_spec);      
         if (rc) {
             printf("error creating S-expression: %s\n", gcry_strerror(rc));
@@ -291,8 +293,8 @@ void ecdsaGcryptTest() {
             printf("privatepart missing in key\n");
         }
 	gcry_sexp_release(key);
-	gcry_sexp_dump(pub_key);
-	gcry_sexp_dump(priv_key);
+	//gcry_sexp_dump(pub_key);
+	//gcry_sexp_dump(priv_key);
 	//gcry_sexp_dump(data) 
         
 	// Create Signature
@@ -301,9 +303,9 @@ void ecdsaGcryptTest() {
             printf("gcrypt error signing data: %s\n", gcry_strerror(rc));
         }
 	gcry_sexp_release(priv_key);
-	gcry_sexp_dump(signature);
+	//gcry_sexp_dump(signature);
 	gcry_md_final(hd);
-	printf("Hash: %s \n", gcry_md_read(hd, GCRY_MD_SHA256));
+	//printf("Hash: %s \n", gcry_md_read(hd, GCRY_MD_SHA256));
 	rc = gcry_pk_hash_verify(signature, template, pub_key, hd, NULL);
         if (rc) {
             printf("gcrypt error verifying data: %i %s\n", rc-GPG_ERR_INTERNAL, gcry_strerror(rc));
@@ -312,7 +314,9 @@ void ecdsaGcryptTest() {
 	gcry_sexp_release(pub_key);
 	gcry_md_close(hd);
 }
+#endif
 
+#if WOLFCRYPT
 void ecdsaWolfcryptTest(){
 	int ret, verified = 0;
 	unsigned int sigSz;
@@ -370,6 +374,7 @@ void ecdsaWolfcryptTest(){
 	wc_ed25519_free(&key);
 	wc_ed25519_free(&pubKey);
 }
+#endif
 
 #ifdef CONTIKI
 PROCESS(ecc_test, "ECC test");
@@ -393,6 +398,8 @@ int main(int argc, char const *argv[])
 {
 	(void)argc;
 	(void)argv;
+	int tick, tock;
+	float diff;
 
 	srand(time(NULL));
 	addTest();
@@ -400,9 +407,21 @@ int main(int argc, char const *argv[])
 	multTest();
 	eccdhTest();
 	ecdsaTest();
-	ecdsaSodiumTest();
-	ecdsaGcryptTest();
-	ecdsaWolfcryptTest();
+	tick = clock();
+	for(int i = 0; i < 1000; i++){
+	    #if SODIUM
+	    ecdsaSodiumTest();
+	    #endif	
+	    #if GCRYPT
+	    ecdsaGcryptTest();
+	    #endif	
+	    #if WOLFCRYPT
+	    ecdsaWolfcryptTest();
+	    #endif	
+	}
+	tock = clock();
+	diff = ((float)tock - tick)/CLOCKS_PER_SEC;	
+	printf("It took %i ticks to complete or %f seconds\n", tock-tick, diff);
 	printf("%s\n", "All Tests successful.");
 	return 0;
 }
